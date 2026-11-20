@@ -1,0 +1,249 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// ADMIN / AUTH
+// ---------------------------------------------------------------------------
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("ADMIN") // ADMIN | MANAGER
+  active       Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// ROOM INVENTORY
+// ---------------------------------------------------------------------------
+
+model RoomCategory {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  name             String
+  tagline          String   @default("")
+  description      String   @default("")
+  pricePerNight    Int      @default(0) // TZS per night
+  maxAdults        Int      @default(2)
+  maxChildren      Int      @default(0)
+  maxTotalGuests   Int      @default(2)
+  bedConfiguration String   @default("")
+  sizeSqm          Int?
+  amenities        String   @default("[]")  // JSON string array
+  coverImage       String   @default("")
+  images           String   @default("[]")  // JSON string array of urls
+  featured         Boolean  @default(false)
+  active           Boolean  @default(true)
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  rooms            Room[]
+  bookings         Booking[]
+}
+
+model Room {
+  id         String    @id @default(cuid())
+  number     String    @unique
+  categoryId String
+  category   RoomCategory @relation(fields: [categoryId], references: [id])
+  floor      String    @default("")
+  notes      String    @default("")
+  status     String    @default("AVAILABLE") // AVAILABLE | MAINTENANCE | INACTIVE
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  bookings   Booking[]
+}
+
+// ---------------------------------------------------------------------------
+// BOOKINGS
+// ---------------------------------------------------------------------------
+
+// Statuses:
+// PENDING | CONFIRMED | REJECTED | CANCELLED | EXPIRED | CHECKED_IN | CHECKED_OUT | NO_SHOW
+model Booking {
+  id              String    @id @default(cuid())
+  reference       String    @unique
+  status          String    @default("PENDING")
+  categoryId      String
+  category        RoomCategory @relation(fields: [categoryId], references: [id])
+  roomId          String?
+  room            Room?     @relation(fields: [roomId], references: [id])
+  guestName       String
+  guestPhone      String
+  guestEmail      String    @default("")
+  adults          Int       @default(1)
+  children        Int       @default(0)
+  checkIn         DateTime  // hotel-local date, stored at UTC midnight
+  checkOut        DateTime
+  nights          Int       @default(1)
+  estimatedTotal  Int       @default(0)
+  specialRequests String    @default("")
+  adminNotes      String    @default("")
+  paymentStatus   String    @default("UNPAID") // UNPAID | PARTIAL | PAID
+  expiresAt       DateTime? // pending hold expiration
+  confirmedAt     DateTime?
+  confirmedBy     String?
+  checkedInAt     DateTime?
+  checkedOutAt    DateTime?
+  closedAt        DateTime?
+  source          String    @default("WEBSITE") // WEBSITE | ADMIN
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  payments        Payment[]
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+  amount     Int      // TZS
+  method     String   @default("CASH") // CASH | MOBILE_MONEY | BANK | CARD | OTHER
+  reference  String   @default("")
+  note       String   @default("")
+  recordedBy String   @default("")
+  recordedAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// RESTAURANT
+// ---------------------------------------------------------------------------
+
+model MenuCategory {
+  id        String   @id @default(cuid())
+  name      String
+  description String @default("")
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items     MenuItem[]
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  categoryId  String
+  category    MenuCategory @relation(fields: [categoryId], references: [id])
+  name        String
+  description String  @default("")
+  price       Int      @default(0) // TZS
+  image       String   @default("")
+  available   Boolean  @default(true)
+  featured    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Restaurant table reservation inquiries (separate from room bookings)
+// Statuses: NEW | CONTACTED | CONFIRMED | REJECTED
+model RestaurantInquiry {
+  id         String   @id @default(cuid())
+  name       String
+  phone      String
+  email      String   @default("")
+  date       String   @default("")
+  time       String   @default("")
+  partySize  Int      @default(1)
+  note       String   @default("")
+  status     String   @default("NEW")
+  adminNotes String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// MEETINGS & EVENTS
+// ---------------------------------------------------------------------------
+
+model MeetingRoom {
+  id         String   @id @default(cuid())
+  slug       String   @unique
+  name       String
+  description String  @default("")
+  capacity   Int      @default(0)
+  seating    String   @default("[]")  // JSON: [{ name, capacity }]
+  equipment  String   @default("[]")  // JSON string array
+  image      String   @default("")
+  pricingNote String  @default("")
+  hourlyRate Int?                        // null = quotation on request
+  active     Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  inquiries  MeetingInquiry[]
+}
+
+// Statuses: NEW | CONTACTED | QUOTATION_SENT | CONFIRMED | REJECTED
+model MeetingInquiry {
+  id             String       @id @default(cuid())
+  reference      String       @unique
+  organization   String
+  contactPerson  String
+  email          String
+  phone          String
+  eventType      String
+  attendees      Int          @default(1)
+  preferredDate  String       @default("")
+  duration       String       @default("")
+  roomId         String?
+  room           MeetingRoom? @relation(fields: [roomId], references: [id])
+  requirements   String       @default("")
+  status         String       @default("NEW")
+  adminNotes     String       @default("")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// CONTENT: GALLERY, AMENITIES, SETTINGS
+// ---------------------------------------------------------------------------
+
+model GalleryImage {
+  id        String   @id @default(cuid())
+  url       String
+  caption   String   @default("")
+  category  String   @default("EXPERIENCES") // ROOMS | RESTAURANT | MEETINGS | EXTERIOR | COMMON | EXPERIENCES
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Amenity {
+  id          String   @id @default(cuid())
+  name        String
+  description String  @default("")
+  icon        String   @default("Check") // lucide icon name
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+}
+
+model Setting {
+  key       String   @id
+  value     String   // JSON string
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // BOOKING_REQUEST | BOOKING_EXPIRED | MEETING_INQUIRY | SYSTEM
+  title     String
+  message   String   @default("")
+  link      String   @default("")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
