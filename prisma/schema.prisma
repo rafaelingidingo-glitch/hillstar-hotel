@@ -3,8 +3,12 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Direct (non-pooled) connection — used by prisma db push / migrate.
+  // On Neon the runtime DATABASE_URL goes through the connection pooler,
+  // while DIRECT_URL points at the endpoint host without `-pooler`.
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +236,22 @@ model Setting {
   key       String   @id
   value     String   // JSON string
   updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// UPLOADS
+// Admin-uploaded images are stored in the database (bytea) and served through
+// /api/uploads/[id]. This keeps the app portable to serverless hosts such as
+// Vercel, where the filesystem is read-only.
+// ---------------------------------------------------------------------------
+
+model UploadedImage {
+  id        String   @id @default(cuid())
+  filename  String
+  mimeType  String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
 }
 
 // ---------------------------------------------------------------------------

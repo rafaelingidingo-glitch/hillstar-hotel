@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useHashRoute, useContent, usePageMeta } from "@/lib/site-hooks";
 import { NavBar } from "./nav-bar";
@@ -79,11 +79,28 @@ function SiteLoading({ full }: { full?: boolean }) {
   );
 }
 
+// Stable no-op subscription for the hydration gate below.
+function subscribeNoop(_onStoreChange: () => void) {
+  return () => {};
+}
+
 export function App() {
   const route = useHashRoute();
   const { data: content, isLoading } = useContent();
 
   const isAdmin = route.path === "/admin" || route.path.startsWith("/admin/");
+
+  // The hash route is only known on the client. The first render (server and
+  // hydration pass) therefore always shows the same stable loading shell —
+  // this prevents hydration mismatches when the page is opened directly on a
+  // deep link such as /#/admin or /#/rooms.
+  // useSyncExternalStore returns false during SSR + the hydration render and
+  // true afterwards, without a cascading setState inside an effect.
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    () => true,
+    () => false
+  );
 
   usePageMeta(
     isAdmin ? "Admin" : "",
@@ -130,6 +147,16 @@ export function App() {
     if (p === "/terms") return <TermsPage content={content} />;
     return <HomePage content={content} params={route.params} />;
   }, [content, isLoading, route.path, route.params, route.raw]);
+
+  // Stable shell until after hydration — SSR output always matches the first
+  // client render regardless of which hash route was requested.
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <SiteLoading full />
+      </div>
+    );
+  }
 
   if (isAdmin) {
     return <AdminApp route={route} />;

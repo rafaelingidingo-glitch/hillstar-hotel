@@ -52,3 +52,5 @@ prompt
 server.log
 # Skills directory
 /skills/
+# local database + migration artifacts (never commit — contains data/secrets)
+/db

@@ -33,6 +33,10 @@ export async function GET(req: NextRequest) {
       meetingNew,
       monthStartBookings,
       unreadNotifications,
+      checkedInBookings,
+      trendBookings,
+      recentBookings,
+      sixMonthPayments,
     ] = await Promise.all([
       db.booking.count(),
       db.booking.count({ where: { status: "PENDING" } }),
@@ -43,7 +47,7 @@ export async function GET(req: NextRequest) {
         select: { id: true },
       }),
       db.booking.findMany({
-        where: { status: "CHECKED_IN", checkOut: { lt: tomorrowMidnight }, checkOut: { gt: todayMidnight } },
+        where: { status: "CHECKED_IN", checkOut: { lt: tomorrowMidnight, gt: todayMidnight } },
         select: { id: true },
       }),
       db.room.findMany({ select: { id: true, status: true, categoryId: true } }),
@@ -65,28 +69,39 @@ export async function GET(req: NextRequest) {
         select: { id: true, status: true },
       }),
       db.notification.count({ where: { read: false } }),
+      db.booking.findMany({
+        where: { status: "CHECKED_IN" },
+        select: { roomId: true, checkIn: true, checkOut: true },
+      }),
+      db.booking.findMany({
+        where: { status: { in: ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] } },
+        select: { checkIn: true, checkOut: true, roomId: true, status: true },
+      }),
+      db.booking.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        include: { category: { select: { name: true } }, room: { select: { number: true } } },
+      }),
+      // One query for all payments in the last 6 months — monthly buckets are
+      // computed in memory (avoids 6 sequential aggregate round-trips).
+      db.payment.findMany({
+        where: { recordedAt: { gte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1)) } },
+        select: { amount: true, recordedAt: true },
+      }),
     ]);
 
     const sellable = allRooms.filter((r) => r.status === "AVAILABLE").length;
     const maintenance = allRooms.filter((r) => r.status === "MAINTENANCE").length;
 
     // Currently occupied: CHECKED_IN bookings active right now
-    const checkedInBookings = await db.booking.findMany({
-      where: { status: "CHECKED_IN" },
-      select: { roomId: true, checkIn: true, checkOut: true },
-    });
     const occupiedRoomIds = new Set(
       checkedInBookings
         .filter((b) => b.roomId && b.checkIn <= now && b.checkOut > now)
         .map((b) => b.roomId as string)
     );
 
-    // Occupancy trend: last 14 days
+    // Occupancy trend: last 14 days (computed in memory from one query)
     const days: { date: string; occupancy: number; arrivals: number; departures: number }[] = [];
-    const trendBookings = await db.booking.findMany({
-      where: { status: { in: ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] } },
-      select: { checkIn: true, checkOut: true, roomId: true, status: true },
-    });
     for (let i = 13; i >= 0; i--) {
       const day = addDays(todayMidnight, -i);
       const nextDay = addDays(day, 1);
@@ -104,17 +119,16 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Revenue by month: last 6 months from recorded payments
+    // Revenue by month: last 6 months, bucketed in memory from one query
     const revenueByMonth: { month: string; revenue: number }[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
       const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
-      const agg = await db.payment.aggregate({
-        _sum: { amount: true },
-        where: { recordedAt: { gte: d, lt: monthEnd } },
-      });
+      const revenue = sixMonthPayments
+        .filter((p) => p.recordedAt >= d && p.recordedAt < monthEnd)
+        .reduce((sum, p) => sum + p.amount, 0);
       const label = new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" }).format(d);
-      revenueByMonth.push({ month: `${label}`, revenue: agg._sum.amount ?? 0 });
+      revenueByMonth.push({ month: `${label}`, revenue });
     }
 
     // Bookings created this month by status
@@ -122,12 +136,6 @@ export async function GET(req: NextRequest) {
     for (const b of monthStartBookings) {
       monthStatusCounts[b.status] = (monthStatusCounts[b.status] || 0) + 1;
     }
-
-    const recentBookings = await db.booking.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      include: { category: { select: { name: true } }, room: { select: { number: true } } },
-    });
 
     return ok({
       stats: {

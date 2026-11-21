@@ -29,9 +29,14 @@ export function ensureExpirySweeper() {
       console.error("[expiry-sweeper]", e);
     }
   };
-  // Initial run shortly after boot, then every 30 seconds.
+  // Initial run shortly after boot. On serverless platforms (e.g. Vercel) the
+  // interval cannot outlive the request, so it is skipped there — expiry is
+  // additionally enforced inline before availability checks and admin views,
+  // and by the Vercel Cron hitting /api/admin/maintenance/expire.
   setTimeout(run, 3000);
-  setInterval(run, 30000);
+  if (!process.env.VERCEL) {
+    setInterval(run, 30000);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +44,10 @@ export function ensureExpirySweeper() {
 // ---------------------------------------------------------------------------
 
 export async function generateBookingReference(tx?: {
-  booking: { count: (args: { where: { reference: { startsWith: string } } }) => Promise<number> };
+  booking: {
+    count: (args: { where: { reference: { startsWith: string } } }) => Promise<number>;
+    findUnique: (args: { where: { reference: string } }) => Promise<{ id: string } | null>;
+  };
 }): Promise<string> {
   const client = tx ?? db;
   const year = new Date().getFullYear();

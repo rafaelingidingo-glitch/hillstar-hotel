@@ -32,10 +32,10 @@ export async function GET(req: NextRequest) {
     if (status && status !== "ALL") where.status = status;
     if (query) {
       where.OR = [
-        { reference: { contains: query } },
-        { guestName: { contains: query } },
-        { guestPhone: { contains: query } },
-        { guestEmail: { contains: query } },
+        { reference: { contains: query, mode: "insensitive" } },
+        { guestName: { contains: query, mode: "insensitive" } },
+        { guestPhone: { contains: query, mode: "insensitive" } },
+        { guestEmail: { contains: query, mode: "insensitive" } },
       ];
     }
     if (from) {

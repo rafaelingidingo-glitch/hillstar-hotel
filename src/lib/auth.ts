@@ -6,7 +6,17 @@ const COOKIE_NAME = "hillstar_admin_session";
 const SESSION_HOURS = 8;
 
 function getSecret(): string {
-  return process.env.AUTH_SECRET || "hillstar-dev-secret-change-in-production";
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      console.warn(
+        "[auth] AUTH_SECRET is not set — falling back to an insecure development secret. " +
+          "Set a strong AUTH_SECRET environment variable in production."
+      );
+    }
+    return "hillstar-dev-secret-change-in-production";
+  }
+  return secret;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +86,8 @@ export function setSessionCookie(username: string, name: string, role: string, s
   res.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: false, // sandbox http
+    // Secure cookies in production (HTTPS); relaxed locally over plain HTTP.
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: SESSION_HOURS * 3600,
   });

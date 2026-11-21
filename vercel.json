@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/admin/maintenance/expire",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

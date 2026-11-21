@@ -50,18 +50,32 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     if (!admin) return fail(401, "Not authenticated");
     ensureExpirySweeper();
     const { id } = await ctx.params;
-    const body = (await req.json().catch(() => null)) as { action?: string } | null;
+    const body = (await req.json().catch(() => null)) as
+      | {
+          action?: string;
+          extendMinutes?: number | string;
+          roomId?: string;
+          notes?: string;
+          checkIn?: string;
+          checkOut?: string;
+          guestName?: string;
+          guestPhone?: string;
+          guestEmail?: string;
+          adults?: number | string;
+          children?: number | string;
+        }
+      | null;
     if (!body?.action) return fail(400, "Missing action");
 
     const result = await db.$transaction(async (tx) => {
       const booking = await tx.booking.findUnique({ where: { id }, include: { category: true, room: true } });
-      if (!booking) return { status: 404 as const, error: "Booking not found" };
+      if (!booking) return { kind: "error" as const, status: 404, error: "Booking not found" };
 
       const now = new Date();
       switch (body.action) {
         case "confirm": {
           if (!["PENDING", "EXPIRED"].includes(booking.status)) {
-            return { status: 400 as const, error: `Cannot confirm a booking with status ${booking.status}.` };
+            return { kind: "error" as const, status: 400, error: `Cannot confirm a booking with status ${booking.status}.` };
           }
           // Resolve room: keep assigned room, or pick a free one
           let roomId = booking.roomId;
@@ -76,11 +90,11 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
               });
               const replacement = rooms.find((r) => r.id !== roomId);
               if (!replacement) {
-                return { status: 409 as const, error: `Room ${roomNumber ?? ""} is no longer available for these dates and no alternative room is free. Reject or choose different dates.` };
+                return { kind: "error" as const, status: 409, error: `Room ${roomNumber ?? ""} is no longer available for these dates and no alternative room is free. Reject or choose different dates.` };
               }
               const altFree = await assertRoomFreeInTx(tx, replacement.id, booking.checkIn, booking.checkOut, booking.id);
               if (!altFree) {
-                return { status: 409 as const, error: "No room in this category is available for these dates." };
+                return { kind: "error" as const, status: 409, error: "No room in this category is available for these dates." };
               }
               roomId = replacement.id;
               roomNumber = replacement.number;
@@ -99,7 +113,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
               }
             }
             if (!assigned) {
-              return { status: 409 as const, error: "No room in this category is available for these dates." };
+              return { kind: "error" as const, status: 409, error: "No room in this category is available for these dates." };
             }
             roomId = assigned;
           }
@@ -114,66 +128,66 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "reject": {
           if (booking.status !== "PENDING" && booking.status !== "EXPIRED") {
-            return { status: 400 as const, error: `Cannot reject a booking with status ${booking.status}.` };
+            return { kind: "error" as const, status: 400, error: `Cannot reject a booking with status ${booking.status}.` };
           }
           const updated = await tx.booking.update({
             where: { id },
             data: { status: "REJECTED", closedAt: now, expiresAt: null },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "cancel": {
           if (!["PENDING", "CONFIRMED"].includes(booking.status)) {
-            return { status: 400 as const, error: `Cannot cancel a booking with status ${booking.status}.` };
+            return { kind: "error" as const, status: 400, error: `Cannot cancel a booking with status ${booking.status}.` };
           }
           const updated = await tx.booking.update({
             where: { id },
             data: { status: "CANCELLED", closedAt: now, expiresAt: null },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "check_in": {
           if (booking.status !== "CONFIRMED") {
-            return { status: 400 as const, error: "Only confirmed bookings can be checked in." };
+            return { kind: "error" as const, status: 400, error: "Only confirmed bookings can be checked in." };
           }
           const updated = await tx.booking.update({
             where: { id },
             data: { status: "CHECKED_IN", checkedInAt: now },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "check_out": {
           if (booking.status !== "CHECKED_IN") {
-            return { status: 400 as const, error: "Only checked-in bookings can be checked out." };
+            return { kind: "error" as const, status: 400, error: "Only checked-in bookings can be checked out." };
           }
           const updated = await tx.booking.update({
             where: { id },
             data: { status: "CHECKED_OUT", checkedOutAt: now, closedAt: now },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "no_show": {
           if (booking.status !== "CONFIRMED") {
-            return { status: 400 as const, error: "Only confirmed bookings can be marked as no-show." };
+            return { kind: "error" as const, status: 400, error: "Only confirmed bookings can be marked as no-show." };
           }
           const updated = await tx.booking.update({
             where: { id },
             data: { status: "NO_SHOW", closedAt: now },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "extend": {
           if (booking.status !== "PENDING") {
-            return { status: 400 as const, error: "Only pending requests can be extended." };
+            return { kind: "error" as const, status: 400, error: "Only pending requests can be extended." };
           }
           const minutes = Math.min(Math.max(Number(body.extendMinutes || 15), 5), 2880);
           const base = booking.expiresAt && booking.expiresAt > now ? booking.expiresAt : now;
@@ -182,29 +196,29 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             data: { expiresAt: new Date(base.getTime() + minutes * 60_000) },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "assign_room": {
           const newRoomId = body.roomId;
-          if (!newRoomId) return { status: 400 as const, error: "roomId is required" };
+          if (!newRoomId) return { kind: "error" as const, status: 400, error: "roomId is required" };
           const room = await tx.room.findUnique({ where: { id: newRoomId } });
-          if (!room) return { status: 404 as const, error: "Room not found" };
+          if (!room) return { kind: "error" as const, status: 404, error: "Room not found" };
           if (room.categoryId !== booking.categoryId) {
-            return { status: 400 as const, error: "Room belongs to a different category." };
+            return { kind: "error" as const, status: 400, error: "Room belongs to a different category." };
           }
           if (room.status !== "AVAILABLE") {
-            return { status: 400 as const, error: "Room is not sellable (maintenance or inactive)." };
+            return { kind: "error" as const, status: 400, error: "Room is not sellable (maintenance or inactive)." };
           }
           const free = await assertRoomFreeInTx(tx, room.id, booking.checkIn, booking.checkOut, booking.id);
           if (!free) {
-            return { status: 409 as const, error: `Room ${room.number} is already held for these dates.` };
+            return { kind: "error" as const, status: 409, error: `Room ${room.number} is already held for these dates.` };
           }
           const updated = await tx.booking.update({
             where: { id },
             data: { roomId: room.id },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "set_notes": {
           const updated = await tx.booking.update({
@@ -212,7 +226,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             data: { adminNotes: String(body.notes || "") },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         case "update_details": {
           // Update guest details / dates. If dates change and booking holds inventory, recheck room.
@@ -221,17 +235,17 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           if (body.checkIn) checkIn = parseHotelDate(body.checkIn);
           if (body.checkOut) checkOut = parseHotelDate(body.checkOut);
           if (checkOut.getTime() <= checkIn.getTime()) {
-            return { status: 400 as const, error: "Check-out must be after check-in." };
+            return { kind: "error" as const, status: 400, error: "Check-out must be after check-in." };
           }
           const nights = nightsBetween(checkIn, checkOut);
-          if (nights > 30) return { status: 400 as const, error: "Stays longer than 30 nights require contacting the guest directly." };
+          if (nights > 30) return { kind: "error" as const, status: 400, error: "Stays longer than 30 nights require contacting the guest directly." };
           const datesChanged =
             checkIn.getTime() !== booking.checkIn.getTime() || checkOut.getTime() !== booking.checkOut.getTime();
 
           if (datesChanged && booking.roomId && ["PENDING", "CONFIRMED", "CHECKED_IN"].includes(booking.status)) {
             const free = await assertRoomFreeInTx(tx, booking.roomId, checkIn, checkOut, booking.id);
             if (!free) {
-              return { status: 409 as const, error: "The assigned room is not free for the new dates. Reassign a room first." };
+              return { kind: "error" as const, status: 409, error: "The assigned room is not free for the new dates. Reassign a room first." };
             }
           }
 
@@ -241,8 +255,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
               guestName: body.guestName ?? booking.guestName,
               guestPhone: body.guestPhone ?? booking.guestPhone,
               guestEmail: body.guestEmail ?? booking.guestEmail,
-              adults: body.adults ?? booking.adults,
-              children: body.children ?? booking.children,
+              adults: Number(body.adults ?? booking.adults),
+              children: Number(body.children ?? booking.children),
               checkIn,
               checkOut,
               nights,
@@ -250,14 +264,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             },
             include: { room: true, category: true },
           });
-          return { status: 200 as const, booking: updated };
+          return { kind: "ok" as const, booking: updated };
         }
         default:
-          return { status: 400 as const, error: "Unknown action" };
+          return { kind: "error" as const, status: 400, error: "Unknown action" };
       }
     });
 
-    if ("error" in result) return fail(result.status, result.error);
+    if (result.kind === "error") return fail(result.status, result.error);
     const b = result.booking;
     return ok({
       booking: {

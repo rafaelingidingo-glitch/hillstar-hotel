@@ -107,7 +107,8 @@ export async function getFreeRoomsForRange(
 
 /**
  * Transaction-safe check that a specific room is free for a range.
- * Must be called inside a transaction to be concurrency-safe with SQLite writes.
+ * Must be called inside a transaction so the conflict check and the booking
+ * write commit atomically (prevents double booking under concurrency).
  */
 export async function assertRoomFreeInTx(
   tx: {

@@ -2,12 +2,14 @@ import ZAI from 'z-ai-web-dev-sdk';
 import fs from 'fs';
 import path from 'path';
 
-const OUT = '/home/z/my-project/public/images';
+const OUT = path.join(process.cwd(), 'public', 'images');
 fs.mkdirSync(OUT, { recursive: true });
 
 const STYLE = 'Professional editorial hospitality photography, warm inviting natural light, elegant boutique hotel in East Africa, sophisticated charcoal ivory and champagne gold palette, photorealistic, ultra detailed, high quality';
 
-const IMAGES: Array<{ file: string; size: string; prompt: string }> = [
+type ImageSize = '1344x768' | '1024x1024' | '768x1344' | '864x1152' | '1152x864' | '1440x720' | '720x1440';
+
+const IMAGES: Array<{ file: string; size: ImageSize; prompt: string }> = [
   { file: 'hero-exterior.jpg', size: '1344x768', prompt: `Grand elegant boutique hotel exterior at dusk, warm golden lights glowing from windows and entrance, manicured palm trees, deep blue twilight sky, tasteful modern African architecture with cream facade, ${STYLE}` },
   { file: 'hero-lobby.jpg', size: '1344x768', prompt: `Luxurious hotel lobby interior with double-height ceiling, warm brass chandeliers, ivory marble floor, navy velvet lounge chairs, champagne gold accents, fresh tropical flowers, ${STYLE}` },
   { file: 'hero-dining.jpg', size: '1344x768', prompt: `Elegant hotel restaurant dining room at golden hour, set tables with white linen and brass candle lanterns, large windows with tropical garden view, dark wood and rattan furniture, ${STYLE}` },

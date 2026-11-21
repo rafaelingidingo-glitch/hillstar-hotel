@@ -103,7 +103,7 @@ export function AdminSettingsPage() {
     }
   };
 
-  const set = (path: string, value: string) => {
+  const set = (path: string, value: unknown) => {
     setForm((f) => {
       if (!f) return f;
       const clone = JSON.parse(JSON.stringify(f)) as HotelSettings;

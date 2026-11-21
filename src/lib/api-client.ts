@@ -43,5 +43,6 @@ export async function uploadImage(file: File): Promise<string> {
   });
   const json = (await res.json()) as ApiResponse<{ url: string }>;
   if (!res.ok || !json.ok) throw new Error(json.error || "Upload failed");
+  if (!json.data) throw new Error("Upload failed: server returned no data");
   return json.data.url;
 }
